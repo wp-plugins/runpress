@@ -5,9 +5,9 @@
  * Plugin Name: 	RunPress
  * Plugin URI: 		http://markusfrenzel.de/wordpress/?page_id=2247
  * 
- * Description: 	A plugin to query the Runtastic website. Returns the data of your running activities.
+ * Description: 	Imports your running activities from the Runtastic website. Displays the data via shortcodes on your webpage. Widget included.
  * 
- * Version: 		1.0.0
+ * Version: 		1.1.0
  * 
  * Author: 			Markus Frenzel
  * Author URI: 		http://www.markusfrenzel.de
@@ -104,7 +104,7 @@ $runpress_offroad = __( 'offroad', 'runpress' );
 $runpress_mixed = __( 'mixed', 'runpress' );
 $runpress_beach = __( 'beach', 'runpress' );
 /* plugin description */
-$runpress_plugin_description = __( 'A plugin to query the Runtastic website. Returns the data of your running activities.', 'runpress' );
+$runpress_plugin_description = __( 'Imports your running activities from the Runtastic website. Displays the data via shortcodes on your webpage. Widget included.', 'runpress' );
 
 /*********************
  ***               ***
@@ -515,6 +515,7 @@ function runpress_local_db() {
 	echo "<table id='backend_results' class='cell-border' cellspacing='0' width='100%'>
 		  <thead>
 		  <tr>
+		  <th align='left'>ID</th>
 		  <th align='left'>" . __( 'Date', 'runpress' ) . "</th>
 		  <th align='left'>" . __( 'Start', 'runpress' ) . "</th>
 		  <th align='left'>" . __( 'Duration', 'runpress' ) . "</th>
@@ -524,6 +525,7 @@ function runpress_local_db() {
 		  </tr></thead>
 		  <tfoot>
 		  <tr>
+		  <th align='left'>ID</th>
 		  <th align='left'>" . __( 'Date', 'runpress' ) . "</th>
 		  <th align='left'>" . __( 'Start', 'runpress' ) . "</th>
 		  <th align='left'>" . __( 'Duration', 'runpress' ) . "</th>
@@ -542,6 +544,7 @@ function runpress_local_db() {
 		$duration = date( 'H:i:s', ( $row->duration/1000 ) );
 		( $opt_val_unittype == "Metric Units" ? $speed = round( $row->speed, 2 ) : $speed = round( $row->speed/1.609344, 2 ) );
 		$backendresult .= "<tr>";
+		$backendresult .= "<td>" . $row->id . "</td>";
 		( $opt_val_unittype == "Metric Units" ? $backendresult .= "<td title='" . $date . " (" . __( 'Format: DD.MM.YYYY', 'runpress' ) . ")'>" . $date . "</td>" : $backendresult .= "<td title='" . $date . " (" . __( 'Format: YYYY/MM/DD', 'runpress' ) . ")'>" . $date . "</td>" );
 		$backendresult .= "<td title='" . $time . "(" . __( 'Format: hh:mm:ss', 'runpress' ) . ")'>" . $time . "</td>";
 		$backendresult .= "<td title='" . $duration . "(" . __( 'Format: hh:mm:ss', 'runpress' ) . ")'>" . $duration . "</td>";
@@ -737,15 +740,115 @@ function runpress_shortcode( $atts ) {
 		'sortorder' => 'desc',
 		'display' => 'table',
 		'title' => '',
+		'entry' => 'latest',
+		'mapwidth' => '200',
+		'mapheight' => '300'
 		), $atts );
 	
-	if( ( $a[ 'year' ] > 999 ) and $a[ 'year' ] < 10000 ) {
-		$query = $wpdb->get_results( "SELECT * FROM $runpress_db_name WHERE date_year=" . $a[ 'year' ] . " ORDER BY id " . $a[ 'sortorder' ], OBJECT );
+	if( $a[ 'display' ] == "single" ) {
+		runpress_enqueue_scripts();
+		if( $a[ 'entry' ] == "latest" ) {
+			$query = $wpdb->get_row( "SELECT date_day, date_month, date_year, distance, duration, pace, feeling, map_url, speed, kcal, heartrate_avg, heartrate_max, elevation_gain, elevation_loss, surface, weather, feeling, notes, date_hour, date_minutes FROM $runpress_db_name WHERE date_year=" . $a[ 'year' ] . " ORDER BY id desc LIMIT 1" );
+		}
+		else
+		{
+			$query = $wpdb->get_row( "SELECT date_day, date_month, date_year, distance, duration, pace, feeling, map_url, speed, kcal, heartrate_avg, heartrate_max, elevation_gain, elevation_loss, surface, weather, feeling, notes, date_hour, date_minutes FROM $runpress_db_name WHERE id=" . $a[ 'entry' ] . " ORDER BY id desc LIMIT 1" );
+		}
+		
+		if( $query ) {
+			$opt_val_unittype = get_option( 'runpress_option_unittype', 'Metric Units' );
+			$header = "";
+			$body = "";
+			$footer = "";
+			( $opt_val_unittype == "Metric Units" ? $date = sprintf( "%02s", $query->date_day ) . "." . sprintf( "%02s", $query->date_month ) . "." . sprintf( "%04s", $query->date_year ) : $date = sprintf( "%04s", $query->date_year ) . "/" . sprintf( "%02s", $query->date_month ) . "/" . sprintf( "%02s", $query->date_day ) );
+			( $opt_val_unittype == "Metric Units" ? $distance = round( $query->distance/1000, 2 ) . " km" : $distance = round( ( $query->distance/1000)/1.609344, 2 ) . " mi." );
+			( $opt_val_unittype == "Metric Units" ? $pace = date( 'i:s', $query->pace*60 ) . " min./km" : $pace = date( 'i:s', ( $query->pace*1.609344 )*60 ) . " min/mi." );
+			$duration = date( 'H:i:s', ( $query->duration/1000 ) ) . " (h:m:s)";
+			( $opt_val_unittype == "Metric Units" ? $elevationgain = $query->elevation_gain . " m" : $elevationgain = round( ( $query->elevation_gain/1000 ) / 1.609344, 2 ) . " mi." );
+			( $opt_val_unittype == "Metric Units" ? $elevationloss = $query->elevation_loss . " m" : $elevationloss = round( ( $query->elevation_loss/1000 ) / 1.609344, 2 ) . " mi." );
+			$calories = $query->kcal;
+			$heartrateavg = $query->heartrate_avg;
+			$heartratemax = $query->heartrate_max;
+			$weather = $query->weather;
+			$surface = $query->surface;
+			$feeling = $query->feeling;
+			$starttime = sprintf( "%02s", $query->date_hour ) . ":" . sprintf( "%02s", $query->date_minutes );
+			/* Define the title of the shortcode */
+			$header .= "<p><h2>" . $a[ 'title' ] . "</h2>";
+			$header .= "<div class='runpress_singletable'>";
+			$header .= "<div class='runpress_singletablerow'>
+						<div class='runpress_singletabledata'>" . __( 'Distance', 'runpress' ) . "
+						<br>
+						" . $distance ."
+						</div>
+						<div class='runpress_singletabledata'>" . __( 'Date', 'runpress' ) . "
+						<br>
+						" . $date . ", " . $starttime . "
+						</div>
+						<div class='runpress_singletabledata'>" . __( 'Avg. Pace', 'runpress' ) . "
+						<br>
+						" . $pace . "
+						</div>
+						<div class='runpress_singletabledata'>" . __( 'Elevation', 'runpress' ) . "
+						<br>
+						<span class='alignleft'>+</span><span class='alignright'>" . $elevationgain . "</span><br>
+						<span class='alignleft'>-</span><span class='alignright'>" . $elevationloss . "</span>
+						</div>
+						<div style='clear: both;'></div>					
+						</div>
+						</div>";
+			$body .= "<div class='runpress_singletable'>
+					  <div class='runpress_singletablerow'>
+					  <div class='runpress_singletabledata'>";
+			if( !$query->map_url ) {
+				/* load the image with a translated string in it */
+				$body .= "<img src='" . plugins_url() . "/runpress/inc/img/showjpg.php?image=nomapfound.jpg&text=" . __( 'No map found!', 'runpress' ) . "' />";
+			}
+			else
+			{
+				$body .= "<img src='http:" . str_replace( 'width=50&height=70', 'width=' . $a[ 'mapwidth' ] . '&height=' . $a[ 'mapheight' ], $query->map_url ) . "'>";
+			}
+			$body .= "</div></div></div>";
+			$footer .= "<div class='runpress_singletable'>
+						<div class='runpress_singletablerow'>
+						<div class='runpress_singletabledata'>" . __( 'Calories', 'runpress' ) . "
+						<br>
+						" . $calories . " kcal
+						</div>
+						<div class='runpress_singletabledata'>" . __( 'Heartrate', 'runpress' ) .  "
+						<br>
+						<span class='alignleft'>" . __( 'Avg.', 'runpress' ) . "</span><span class='alignright'>" . $heartrateavg . "</span><br>
+						<span class='alignleft'>" . __( 'Max.', 'runpress' ) . "</span><span class='alignright'>" . $heartratemax . "</span>
+						</div>
+						<div class='runpress_singletabledata'>" . __( 'Weather', 'runpress') . "
+						<br>
+						" . __( $weather, 'runpress' ) . "
+						</div>
+						<div class='runpress_singletabledata'>" . __( 'Surface', 'runpress' ) . "
+						<br>
+						" . __( $surface, 'runpress' ) . "
+						</div>
+						<div class='runpress_singletabledata'>" . __( 'Feeling', 'runpress') . "
+						<br>
+						" . __( $feeling, 'runpress' ) . "
+						</div>
+						</div>";
+			$footer .= "</div></p>";
+			$returncontent = "";
+			$returncontent = $header . $body . $footer;
+		}
+		return $returncontent;
 	}
 	else
 	{
-		$query = $wpdb->get_results( "SELECT * FROM $runpress_db_name ORDER BY id " . $a[ 'sortorder' ], OBJECT );
-	}
+		if( ( $a[ 'year' ] > 999 ) and $a[ 'year' ] < 10000 ) {
+			$query = $wpdb->get_results( "SELECT * FROM $runpress_db_name WHERE date_year=" . $a[ 'year' ] . " ORDER BY id " . $a[ 'sortorder' ], OBJECT );
+		}
+		else
+		{
+			$query = $wpdb->get_results( "SELECT * FROM $runpress_db_name ORDER BY id " . $a[ 'sortorder' ], OBJECT );
+		}
+
 	if( $query ) {
 		/* The core table which is used to display the data native and through JQuery Datatables */
 		if( $a[ 'display' ] == "table" || $a[ 'display' ] == "datatable" ) {
@@ -932,6 +1035,7 @@ function runpress_shortcode( $atts ) {
 		}
 		return $returncontent;
 	}
+}
 	return __( 'Sorry, no data found!', 'runpress' );
 }
 	
@@ -948,6 +1052,8 @@ function runpress_enqueue_scripts() {
 	wp_enqueue_script( 'jquery_datatables_js' );
 	wp_register_style( 'jquery_datatables_css', plugins_url() . '/runpress/inc/css/jquery.dataTables.css' );
 	wp_enqueue_style( 'jquery_datatables_css' );
+	wp_register_style( 'runpress_css', plugins_url() . '/runpress/inc/css/runpress.css' );
+	wp_enqueue_style( 'runpress_css' );
 }
 
 /*
@@ -1114,7 +1220,8 @@ function runpress_shortcode_generator() {
 	echo "<h2>" . __( 'RunPress Shortcode Generator', 'runpress' ) . "</h2>";
 	echo "<h3>" . __( 'General Shortcode usage', 'runpress' ) . "</h3>";
 	/* the shortcode should be as easy as an order at starbucks */
-	echo __( 'You can choose between 3 possibilities to display your runtastic running activities: <b>table</b>, <b>datatable</b> and <b>chart</b>.<br /><br />You might limit the data to display by declaring a specific <b>year</b>. <i>If you do not declare a year the actual year will be used!</i><br /><br />The data <b>sortorder</b> can be changed by declaring the specific variable.<br /><br />Use the <b>title</b> variable to label your data with a heading.<br /><h4>Examples:</h4>[runpress year="2014" display="table" sortorder="desc"]<br /><i>This shortcode will show your data from 2014, sorted descending by the runtastic id within a normal table</i><br /><br />[runpress display="datatable"]<br /><i>This shortcode will show your data from the actual year, sorted descending by the runtastic id within a special table called "DataTable".</i><br /><br />[runpress year="2015" display="chart" sortorder="desc"]<br /><i>This shortcode will show your data from 2015, ignoring the sortorder because it will only show the monthly sums of your running activities within a chart powered by Google Charts.</i><br /><br /><h3>How to use this shortcode?</h3>Just copy the example shortcode (including the square brackets at the beginning and the end) or use the Generator to build a new one and paste it into the page where the data should be displayed. It runs also in posts... not only in pages!<br /><br />If you want to use the data in a widget area: please use the RunPress Widget which has been installed with the activation of this plugin.', 'runpress' );
+	echo __( 'You can choose between 4 possibilities to display your runtastic running activities: <b>table</b>, <b>datatable</b>, <b>chart</b> and <b>single</b>.<br /><br />You might limit the data to display by declaring a specific <b>year</b>. <i>If you do not declare a year the actual year will be used!</i><br /><br />The data <b>sortorder</b> can be changed by declaring the specific variable.<br /><br />Use the <b>title</b> variable to label your data with a heading.<br /><h4>Examples:</h4>[runpress year="2014" display="table" sortorder="desc"]<br /><i>This shortcode will show your data from 2014, sorted descending by the runtastic id within a normal table</i><br /><br />[runpress display="datatable"]<br /><i>This shortcode will show your data from the actual year, sorted descending by the runtastic id within a special table called "DataTable".</i><br /><br />[runpress year="2015" display="chart" sortorder="desc"]<br /><i>This shortcode will show your data from 2015, ignoring the sortorder because it will only show the monthly sums of your running activities within a chart powered by Google Charts.</i><br /><br />[runpress display="single" entry="latest" mapwidth="500" mapheight="300"]<br /><i>This shortcode will show the single event specified by the "entry" variable with a lot of details including map!</i><br /><br /><h3>How to use this shortcode?</h3>Just copy the example shortcode (including the square brackets at the beginning and the end) or use the Generator to build a new one and paste it into the page where the data should be displayed. It runs also in posts... not only in pages!<br /><br />If you want to use the data in a widget area: please use the RunPress Widget which has been installed with the activation of this plugin.', 'runpress' );
+	
 	/* show the generator */
 	echo "<h3>" . __( 'Runpress Shortcode Generator', 'runpress' ). "</h3>";
 	/* check the possible years to display */
@@ -1122,25 +1229,81 @@ function runpress_shortcode_generator() {
 	?>
 	
 	<script type="text/javascript">
+		jQuery(document).ready(function($){
+			$('#tr_entry').hide();
+			$('#tr_mapdimensions').hide();
+			$('#tr_year').show();
+			$('#tr_sortorder').show();
+			$('#display').change(function(){
+				if($('#display').val() == ' display=single') {
+					$('#tr_entry').show();
+					$('#tr_mapdimensions').show();
+					$('#tr_year').hide();
+					$('#tr_sortorder').hide();
+				}
+				else
+				{
+					$('#tr_entry').hide();
+					$('#tr_mapdimensions').hide();
+					$('#tr_year').show();
+					$('#tr_sortorder').show();
+				}
+			});
+		});
+				
 		function transferFields() {
 			if( !document.getElementById( "title").value ) {
-				generatedshortcode = '[runpress ' + document.getElementById( "year" ).value + document.getElementById( "display" ).value + document.getElementById( "sortorder" ).value + ']';
+				if ( document.getElementById( "display" ).value==" display=single" ) {
+					document.getElementById( "entry" ).value=' entry=' + document.getElementById( "entry" ).value;
+					generatedshortcode = '[runpress ' + document.getElementById( "display" ).value + document.getElementById( "entry" ).value + ' mapwidth=' + document.getElementById( "mapwidth" ).value + ' mapheight=' + document.getElementById( "mapheight" ).value + ']';
+				}
+				else
+				{
+					generatedshortcode = '[runpress ' + document.getElementById( "year" ).value + document.getElementById( "display" ).value + document.getElementById( "sortorder" ).value + ']';
+				}
 			}
 			else
 			{
-				generatedshortcode = '[runpress ' + document.getElementById( "year" ).value + document.getElementById( "display" ).value + document.getElementById( "sortorder" ).value + ' title="' + document.getElementById( "title" ).value + '"]';
+				if ( document.getElementById( "display" ).value==" display=single" ) {
+					document.getElementById( "entry" ).value=' entry=' + document.getElementById( "entry" ).value;
+					generatedshortcode = '[runpress ' + document.getElementById( "display" ).value + document.getElementById( "entry" ).value + ' mapwidth=' + document.getElementById( "mapwidth" ).value + ' mapheight=' + document.getElementById( "mapheight" ).value + ' title="' + document.getElementById( "title" ).value + '"]';
+				}
+				else
+				{
+					generatedshortcode = '[runpress ' + document.getElementById( "year" ).value + document.getElementById( "display" ).value + document.getElementById( "sortorder" ).value + ' title="' + document.getElementById( "title" ).value + '"]';
+				}
 			}
 			document.runpressgenerator.shortcode.value = generatedshortcode.replace( "  "," " );
+			document.getElementById( "entry" ).value = document.getElementById( "entry" ).value.replace( " entry=", "" );			
+		}
+		
+		function resetFields() {
+			document.runpressgenerator.shortcode.value = "";
+			document.getElementById( "display" ).value = document.getElementById( "display" );
 		}
 	</script>
-	
 	<form name="runpressgenerator">
-	<input type="text" id="shortcode" value="" size=80 onclick="this.select();">
-	<input type="reset" value="<?php _e( 'Reset', 'runpress' ); ?>">
+	<input type="text" id="shortcode" value="" size=80>
+	<!-- <input type="reset" value="<?php _e( 'Reset', 'runpress' ); ?>"> -->
+	<input type="button" class="button-primary" onclick="resetFields()" value="<?php _e( 'Reset', 'runpress' ); ?>">
     <br />
     <br />
     <table>
-		<tr>
+	<tr>
+		<td><?php _e( 'Display:', 'runpress' ) . ' '; ?></td>
+		<td><select id="display" name="display" size="1">
+			<option value=" display=table"><?php _e( 'Table', 'runpress' ); ?></option>
+			<option value=" display=datatable">DataTable</option>
+			<option value=" display=chart"><?php _e( 'Chart', 'runpress' ); ?></option>
+			<option value=" display=single"><?php _e( 'Single', 'runpress' ); ?></option>
+			<option value=""><?php _e( 'empty', 'runpress' ); ?></option>
+			</select>
+		</td>
+		<td>
+			<?php _e( '<i>If "empty" the default value (table) will be used.</i>', 'runpress' ); ?>
+		</td>
+	</tr>
+		<tr id="tr_year">
 			<td><?php _e( 'Year:', 'runpress' ) . ' '; ?></td>
 			<td><select id="year" name="year" size="1">
 				<?php
@@ -1155,20 +1318,17 @@ function runpress_shortcode_generator() {
 				<?php _e( '<i>If "empty" the default value (the actual year) will be used.</i>', 'runpress' ); ?>
 			</td>
 		</tr>
-    <tr>
-		<td><?php _e( 'Display:', 'runpress' ) . ' '; ?></td>
-		<td><select id="display" name="display" size="1">
-			<option value=" display=table"><?php _e( 'Table', 'runpress' ); ?></option>
-			<option value=" display=datatable">DataTable</option>
-			<option value=" display=chart"><?php _e( 'Chart', 'runpress' ); ?></option>
-			<option value=""><?php _e( 'empty', 'runpress' ); ?></option>
-			</select>
-		</td>
-		<td>
-			<?php _e( '<i>If "empty" the default value (table) will be used.</i>', 'runpress' ); ?>
-		</td>
+	<tr id="tr_entry">
+		<td><?php _e( 'Entry:', 'runpress' ) . ' '; ?></td>
+		<td><input type="text" id="entry" value="latest" size=30></td>
+		<td><?php _e( '<i>Just copy and paste the ID value from your local RunPress Database or use the word "latest" for your latest run.</i>', 'runpress' ); ?></td>
 	</tr>
-	<tr>
+	<tr id="tr_mapdimensions">
+		<td><?php _e( 'Mapwidth / Mapheight:', 'runpress' ) . ' '; ?></td>
+		<td><input type="number" id="mapheight" min=1 max=1000 step=1 value=500> / <input type="number" id="mapwidth" min=1 max=1000 step=1 value=350></td>
+		<td><?php _e( '<i>Specifies the width and the height of the map which is shown in your post or page.</i>', 'runpress' ); ?></td>
+	</tr>
+	<tr id="tr_sortorder">
 		<td><?php _e( 'Sortorder:', 'runpress' ) . ' '; ?></td>
 		<td><select id="sortorder" name="sortorder" size="1">
 			<option value=" sortorder=desc"><?php _e( 'Descending', 'runpress' ); ?></option>
